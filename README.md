@@ -7,7 +7,7 @@ Features
 --------
 
 - Configure services under General Printing, Souvenirs, Framing, and Branding.
-- Persist service edits in the browser with `localStorage`.
+- Persist service edits to Cloudflare KV.
 - Serve the customer-facing brochure from `/customer/page/`.
 - Maintain a price list with editable service names, descriptions, units, and prices.
 - Build quick estimates with the calculator and save reusable presets.
@@ -54,7 +54,7 @@ File Responsibilities
 - `functions/customer.js`: Explicit 404 guard for `/customer` and `/customer/`; the customer page is only `/customer/page/`.
 - `wrangler.toml`: Cloudflare Pages configuration, including the KV namespace binding.
 - `assets/css/styles.css`: All visual styling, responsive rules, customer brochure layout, cards, modals, and animations.
-- `assets/js/data.js`: The `window.DatApp` namespace, default service data, category metadata, preset defaults, normalization, localStorage keys, and app state.
+- `assets/js/data.js`: The `window.DatApp` namespace, default service data, category metadata, preset defaults, normalization, cloud catalog sync, and app state.
 - `assets/js/navigation.js`: Main tab switching and service category switching.
 - `assets/js/services.js`: Service rendering, price list rendering, add/edit/delete behavior, save banner, and add-service modal.
 - `assets/js/calculator.js`: Quote calculator, totals, and preset management.
@@ -89,17 +89,14 @@ The `Send to Customer` button creates this customer-page link and copies it to t
 Persistence
 -----------
 
-Data is stored in the browser's `localStorage` first.
+Data is stored in Cloudflare KV through the `/api/catalog` Pages Function. The admin page no longer stores services, presets, or the admin token in browser `localStorage`.
 
-- Services are stored under `dat_services`.
-- Presets are stored under `dat_presets`.
-- The Cloud admin token is stored under `dat_admin_token`.
-
-When deployed on Cloudflare Pages with the KV binding below, the app also supports shared online data:
+When deployed on Cloudflare Pages with the KV binding below:
 
 - `customer/page/index.html` reads the published cloud catalog from `/api/catalog`.
 - `admin/view/index.html` can publish services and presets to `/api/catalog`.
-- Admin cloud writes require the secret token configured as `ADMIN_TOKEN`.
+- Admin writes require the secret token configured as `ADMIN_TOKEN`.
+- Admin edits auto-save to KV after the token is entered for the current session.
 
 Cloudflare Pages Setup
 ----------------------
@@ -133,11 +130,10 @@ After deployment:
 1. Open `/admin/view/`.
 2. Go to `Price List`.
 3. Enter the Cloud admin token.
-4. Click `Save Token`.
-5. Edit services or presets.
-6. Click `Save to Cloud`.
+4. Click `Set Token`.
+5. Edit services or presets. Changes auto-save to Cloudflare KV.
 
-The customer page will then load the shared cloud catalog. If Cloudflare KV is not configured or the site is opened directly from disk, the app falls back to browser-local data.
+The customer page will then load the shared cloud catalog. If Cloudflare KV is not configured or the site is opened directly from disk, changes will not persist.
 
 Development Notes
 -----------------
@@ -158,4 +154,4 @@ Open this file in a browser and click `Run Tests`:
 tests/persistence.test.html
 ```
 
-The test backs up the current browser storage, verifies custom services and presets survive normalization/reload, then restores the original storage values.
+The test verifies catalog normalization and confirms service persistence queues a cloud save without browser local storage.

@@ -162,7 +162,7 @@
     app.persistPresets();
     input.value = '';
     app.renderPresets();
-    app.showToast('✓ Preset "' + name + '" saved!');
+    app.showToast('✓ Preset "' + name + '" queued for cloud save.');
   };
 
   app.deletePreset = function deletePreset(index) {

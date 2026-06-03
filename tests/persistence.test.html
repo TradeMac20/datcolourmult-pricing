@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DAT Persistence Test</title>
+<title>DAT Cloud Catalog Test</title>
 <style>
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -36,8 +36,8 @@
 </style>
 </head>
 <body>
-<h1>DAT Pricing Site Persistence Test</h1>
-<p>This test backs up the current browser storage, runs persistence checks, then restores the original values.</p>
+<h1>DAT Pricing Site Cloud Catalog Test</h1>
+<p>This test verifies cloud catalog normalization without using browser local storage.</p>
 <button id="run-tests" type="button">Run Tests</button>
 <div class="results" id="results" aria-live="polite"></div>
 
@@ -58,20 +58,10 @@
     if (!condition) throw new Error(name);
   }
 
-  function restore(key, value) {
-    if (value === null) {
-      localStorage.removeItem(key);
-    } else {
-      localStorage.setItem(key, value);
-    }
-  }
-
   button.addEventListener('click', () => {
     results.innerHTML = '';
-    const serviceKey = DatApp.STORAGE_KEYS.services;
-    const presetKey = DatApp.STORAGE_KEYS.presets;
-    const originalServices = localStorage.getItem(serviceKey);
-    const originalPresets = localStorage.getItem(presetKey);
+    const originalQueueCloudSave = DatApp.queueCloudSave;
+    let queuedSaves = 0;
 
     try {
       const customCatalog = DatApp.cloneData(DatApp.DEFAULT_DATA);
@@ -83,14 +73,13 @@
         desc: 'Temporary persistence test service',
       });
 
-      localStorage.setItem(serviceKey, JSON.stringify(customCatalog));
-      localStorage.setItem(presetKey, JSON.stringify([
-        { name: 'Custom Preset', items: { 'p-custom-test': 2, missing: 99 } }
-      ]));
-
-      DatApp.state = DatApp.createState(localStorage);
+      DatApp.state = DatApp.createState();
+      DatApp.applyCatalog({
+        services: customCatalog,
+        presets: [{ name: 'Custom Preset', items: { 'p-custom-test': 2, missing: 99 } }],
+      });
       assert(
-        'custom service survives initialization',
+        'custom service applies from cloud catalog',
         DatApp.state.services.printing.some(service => service.id === 'p-custom-test')
       );
       assert(
@@ -102,11 +91,11 @@
         !Object.prototype.hasOwnProperty.call(DatApp.state.presets[0].items, 'missing')
       );
 
+      DatApp.queueCloudSave = () => { queuedSaves += 1; };
       DatApp.persistServices();
-      const reloaded = DatApp.createState(localStorage);
       assert(
-        'custom service persists after storage reload',
-        reloaded.services.printing.some(service => service.id === 'p-custom-test')
+        'service persistence queues cloud save',
+        queuedSaves === 1
       );
 
       const legacyCatalog = DatApp.cloneData(DatApp.DEFAULT_DATA);
@@ -118,21 +107,19 @@
         unit: 'per piece',
         desc: '',
       });
-      localStorage.setItem(serviceKey, JSON.stringify(legacyCatalog));
-      const normalized = DatApp.createState(localStorage);
+      const normalized = DatApp.normalizeServiceCatalog(legacyCatalog);
       assert(
         'legacy removed service is not restored',
-        !normalized.services.printing.some(service => service.id === 'p2')
+        !normalized.printing.some(service => service.id === 'p2')
       );
       assert(
         'legacy normalization keeps custom IDs',
-        normalized.services.souvenirs.some(service => service.id === 's-custom-test')
+        normalized.souvenirs.some(service => service.id === 's-custom-test')
       );
     } catch (error) {
       report('test run completed', false, error.message);
     } finally {
-      restore(serviceKey, originalServices);
-      restore(presetKey, originalPresets);
+      DatApp.queueCloudSave = originalQueueCloudSave;
     }
   });
 </script>

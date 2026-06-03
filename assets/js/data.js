@@ -1,12 +1,7 @@
 // =================== DAT APP STATE ===================
 (function () {
-  const STORAGE_KEYS = {
-    services: 'dat_services',
-    presets: 'dat_presets',
-    adminToken: 'dat_admin_token',
-  };
-
   const CLOUD_CATALOG_ENDPOINT = '/api/catalog';
+  const CLOUD_AUTOSAVE_DELAY = 700;
 
   const DEFAULT_DATA = {
     printing: [
@@ -60,14 +55,6 @@
 
   function cloneData(data) {
     return JSON.parse(JSON.stringify(data));
-  }
-
-  function readJSON(storage, key) {
-    try {
-      return JSON.parse(storage.getItem(key) || 'null');
-    } catch (error) {
-      return null;
-    }
   }
 
   function normalizeLegacyService(cat, svc) {
@@ -128,33 +115,23 @@
     });
   }
 
-  function createState(storage) {
-    const targetStorage = storage || window.localStorage;
-    const storedServices = readJSON(targetStorage, STORAGE_KEYS.services);
-    const services = normalizeServiceCatalog(storedServices);
-
-    if (storedServices && JSON.stringify(storedServices) !== JSON.stringify(services)) {
-      targetStorage.setItem(STORAGE_KEYS.services, JSON.stringify(services));
-    }
-
-    const storedPresets = readJSON(targetStorage, STORAGE_KEYS.presets);
-    const presets = normalizePresets(storedPresets, services);
-
-    if (storedPresets && JSON.stringify(storedPresets) !== JSON.stringify(presets)) {
-      targetStorage.setItem(STORAGE_KEYS.presets, JSON.stringify(presets));
-    }
-
+  function createState() {
+    const services = normalizeServiceCatalog(DEFAULT_DATA);
+    const presets = normalizePresets(DEFAULT_PRESETS, services);
     return {
       services,
       presets,
       calcQty: {},
       activePreset: null,
       isDirty: false,
+      adminToken: '',
+      cloudSaveTimer: null,
+      cloudSaveInFlight: false,
+      cloudSaveQueued: false,
     };
   }
 
   const DatApp = {
-    STORAGE_KEYS,
     DEFAULT_DATA,
     CAT_META,
     DEFAULT_PRESETS,
@@ -167,17 +144,14 @@
     normalizeServiceCatalog,
     normalizePresets,
     createState,
-    persistServices(storage) {
-      const targetStorage = storage || window.localStorage;
-      targetStorage.setItem(STORAGE_KEYS.services, JSON.stringify(DatApp.state.services));
+    persistServices() {
+      DatApp.queueCloudSave();
     },
-    persistPresets(storage) {
-      const targetStorage = storage || window.localStorage;
-      targetStorage.setItem(STORAGE_KEYS.presets, JSON.stringify(DatApp.state.presets));
+    persistPresets() {
+      DatApp.queueCloudSave();
     },
-    persistCatalog(storage) {
-      DatApp.persistServices(storage);
-      DatApp.persistPresets(storage);
+    persistCatalog() {
+      DatApp.queueCloudSave();
     },
     catalogPayload() {
       return {
@@ -189,16 +163,16 @@
       return window.location.protocol !== 'file:';
     },
     getAdminToken() {
-      return window.localStorage.getItem(STORAGE_KEYS.adminToken) || '';
+      const input = document.getElementById('cloud-token');
+      return DatApp.state.adminToken || (input ? input.value.trim() : '');
     },
     setAdminToken(token) {
-      window.localStorage.setItem(STORAGE_KEYS.adminToken, token);
+      DatApp.state.adminToken = token;
     },
     applyCatalog(catalog) {
       if (!catalog || !catalog.services) return false;
       DatApp.state.services = normalizeServiceCatalog(catalog.services);
       DatApp.state.presets = normalizePresets(catalog.presets || DEFAULT_PRESETS, DatApp.state.services);
-      DatApp.persistCatalog();
       return true;
     },
     async loadCloudCatalog(options) {
@@ -213,7 +187,7 @@
         const response = await fetch(CLOUD_CATALOG_ENDPOINT, { cache: 'no-store' });
 
         if (response.status === 404) {
-          if (!settings.silent) DatApp.updateCloudStatus('No cloud catalog yet. Save to Cloud to publish one.', 'warn');
+          if (!settings.silent) DatApp.updateCloudStatus('No cloud catalog yet. Add a service or save to publish one.', 'warn');
           return false;
         }
 
@@ -227,11 +201,18 @@
         }
         return applied;
       } catch (error) {
-        if (!settings.silent) DatApp.updateCloudStatus('Cloud sync unavailable. Using browser data.', 'warn');
+        if (!settings.silent) DatApp.updateCloudStatus('Cloud sync unavailable. Changes will not persist.', 'warn');
         return false;
       }
     },
-    async saveCloudCatalog() {
+    queueCloudSave() {
+      if (DatApp.state.cloudSaveTimer) window.clearTimeout(DatApp.state.cloudSaveTimer);
+      DatApp.state.cloudSaveTimer = window.setTimeout(() => {
+        DatApp.saveCloudCatalog({ auto: true });
+      }, CLOUD_AUTOSAVE_DELAY);
+    },
+    async saveCloudCatalog(options) {
+      const settings = options || {};
       if (!DatApp.canUseCloudApi()) {
         DatApp.updateCloudStatus('Cloud save needs the deployed site or a local server.', 'warn');
         return false;
@@ -239,12 +220,20 @@
 
       const token = DatApp.getAdminToken();
       if (!token) {
-        DatApp.updateCloudStatus('Enter and save the Cloud admin token first.', 'warn');
+        DatApp.state.cloudSaveQueued = true;
+        DatApp.updateCloudStatus('Enter the Cloud admin token to auto-save changes.', 'warn');
+        return false;
+      }
+
+      if (DatApp.state.cloudSaveInFlight) {
+        DatApp.state.cloudSaveQueued = true;
         return false;
       }
 
       try {
-        DatApp.updateCloudStatus('Saving cloud catalog...', 'busy');
+        DatApp.state.cloudSaveInFlight = true;
+        DatApp.state.cloudSaveQueued = false;
+        DatApp.updateCloudStatus(settings.auto ? 'Auto-saving to Cloud...' : 'Saving cloud catalog...', 'busy');
         const response = await fetch(CLOUD_CATALOG_ENDPOINT, {
           method: 'POST',
           headers: {
@@ -266,11 +255,16 @@
         DatApp.refreshViews();
         DatApp.state.isDirty = false;
         DatApp.hideSaveBanner();
-        DatApp.updateCloudStatus('Saved to Cloud. Customer page is updated.', 'ok');
+        DatApp.updateCloudStatus(settings.auto ? 'Auto-saved to Cloud.' : 'Saved to Cloud. Customer page is updated.', 'ok');
         return true;
       } catch (error) {
         DatApp.updateCloudStatus('Cloud save failed. Check your Pages binding/token.', 'warn');
         return false;
+      } finally {
+        DatApp.state.cloudSaveInFlight = false;
+        if (DatApp.state.cloudSaveQueued && DatApp.getAdminToken()) {
+          DatApp.queueCloudSave();
+        }
       }
     },
   };

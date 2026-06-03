@@ -222,12 +222,9 @@
   };
 
   app.savePrices = function savePrices() {
-    app.persistServices();
-    app.state.isDirty = false;
-    app.hideSaveBanner();
     app.renderServiceCards();
     app.renderCalc();
-    app.showToast('✓ Changes saved successfully!');
+    app.saveCloudCatalog();
   };
 
   app.addServiceModal = function addServiceModal() {

@@ -67,13 +67,13 @@
     const input = document.getElementById('cloud-token');
     const token = input ? input.value.trim() : '';
     app.setAdminToken(token);
-    app.updateCloudStatus(token ? 'Cloud token saved in this browser.' : 'Cloud token cleared.', token ? 'ok' : 'warn');
+    app.updateCloudStatus(token ? 'Cloud token ready for this session.' : 'Cloud token cleared.', token ? 'ok' : 'warn');
+    if (token && app.state.isDirty) app.queueCloudSave();
   };
 
   app.initAdmin = function initAdmin() {
     bindAdminEvents();
     if (app.checkCustomerView()) return;
-    app.hydrateCloudToken();
     app.renderServiceCards();
     app.loadCloudCatalog({ silent: true });
   };
