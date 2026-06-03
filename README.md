@@ -51,6 +51,7 @@ File Responsibilities
 - `customer/page/index.html`: Customer-facing brochure entrypoint.
 - `admin/view/index.html`: Admin/configure page markup, external font/icon imports, and script loading order.
 - `functions/api/catalog.js`: Cloudflare Pages Function for shared catalog reads and token-protected admin writes.
+- `functions/customer.js`: Explicit 404 guard for `/customer` and `/customer/`; the customer page is only `/customer/page/`.
 - `wrangler.toml`: Cloudflare Pages configuration, including the KV namespace binding.
 - `assets/css/styles.css`: All visual styling, responsive rules, customer brochure layout, cards, modals, and animations.
 - `assets/js/data.js`: The `window.DatApp` namespace, default service data, category metadata, preset defaults, normalization, localStorage keys, and app state.
