@@ -16,6 +16,9 @@
       if (action === 'confirm-add-service') app.confirmAddService();
       if (action === 'add-price-row') app.addRowInline(actionTarget.dataset.cat);
       if (action === 'delete-service') app.deleteRow(actionTarget.dataset.cat, actionTarget.dataset.id);
+      if (action === 'save-cloud-token') app.saveCloudToken();
+      if (action === 'load-cloud') app.loadCloudCatalog();
+      if (action === 'save-cloud') app.saveCloudCatalog();
       if (action === 'save-preset') app.savePreset();
       if (action === 'load-preset') app.loadPreset(Number(actionTarget.dataset.index));
       if (action === 'delete-preset') app.deletePreset(Number(actionTarget.dataset.index));
@@ -40,16 +43,46 @@
     });
   }
 
+  app.refreshViews = function refreshViews() {
+    app.renderServiceCards();
+    if (document.getElementById('page-prices')?.classList.contains('active')) app.renderPrices();
+    if (typeof app.renderCalc === 'function') app.renderCalc();
+    app.renderCustomerServices();
+  };
+
+  app.updateCloudStatus = function updateCloudStatus(message, state) {
+    const status = document.getElementById('cloud-sync-status');
+    if (!status) return;
+    status.textContent = message;
+    status.className = 'cloud-sync-status';
+    if (state) status.classList.add(state);
+  };
+
+  app.hydrateCloudToken = function hydrateCloudToken() {
+    const input = document.getElementById('cloud-token');
+    if (input) input.value = app.getAdminToken();
+  };
+
+  app.saveCloudToken = function saveCloudToken() {
+    const input = document.getElementById('cloud-token');
+    const token = input ? input.value.trim() : '';
+    app.setAdminToken(token);
+    app.updateCloudStatus(token ? 'Cloud token saved in this browser.' : 'Cloud token cleared.', token ? 'ok' : 'warn');
+  };
+
   app.initAdmin = function initAdmin() {
     bindAdminEvents();
     if (app.checkCustomerView()) return;
+    app.hydrateCloudToken();
     app.renderServiceCards();
+    app.loadCloudCatalog({ silent: true });
   };
 
   app.initCustomer = function initCustomer() {
     bindCustomerEvents();
     app.renderCustomerServices();
     app.showCustomerCategory('printing');
+    app.loadCloudCatalog({ silent: true });
   };
 
   app.init = function init() {

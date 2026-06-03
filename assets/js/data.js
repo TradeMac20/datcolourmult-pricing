@@ -3,7 +3,10 @@
   const STORAGE_KEYS = {
     services: 'dat_services',
     presets: 'dat_presets',
+    adminToken: 'dat_admin_token',
   };
+
+  const CLOUD_CATALOG_ENDPOINT = '/api/catalog';
 
   const DEFAULT_DATA = {
     printing: [
@@ -157,6 +160,7 @@
     DEFAULT_PRESETS,
     CUSTOMER_SERVICE_IDS,
     CATEGORY_ORDER,
+    CLOUD_CATALOG_ENDPOINT,
     state: createState(),
     cloneData,
     normalizeLegacyService,
@@ -170,6 +174,104 @@
     persistPresets(storage) {
       const targetStorage = storage || window.localStorage;
       targetStorage.setItem(STORAGE_KEYS.presets, JSON.stringify(DatApp.state.presets));
+    },
+    persistCatalog(storage) {
+      DatApp.persistServices(storage);
+      DatApp.persistPresets(storage);
+    },
+    catalogPayload() {
+      return {
+        services: DatApp.state.services,
+        presets: DatApp.state.presets,
+      };
+    },
+    canUseCloudApi() {
+      return window.location.protocol !== 'file:';
+    },
+    getAdminToken() {
+      return window.localStorage.getItem(STORAGE_KEYS.adminToken) || '';
+    },
+    setAdminToken(token) {
+      window.localStorage.setItem(STORAGE_KEYS.adminToken, token);
+    },
+    applyCatalog(catalog) {
+      if (!catalog || !catalog.services) return false;
+      DatApp.state.services = normalizeServiceCatalog(catalog.services);
+      DatApp.state.presets = normalizePresets(catalog.presets || DEFAULT_PRESETS, DatApp.state.services);
+      DatApp.persistCatalog();
+      return true;
+    },
+    async loadCloudCatalog(options) {
+      const settings = options || {};
+      if (!DatApp.canUseCloudApi()) {
+        if (!settings.silent) DatApp.updateCloudStatus('Cloud sync needs the deployed site or a local server.', 'warn');
+        return false;
+      }
+
+      try {
+        if (!settings.silent) DatApp.updateCloudStatus('Loading cloud catalog...', 'busy');
+        const response = await fetch(CLOUD_CATALOG_ENDPOINT, { cache: 'no-store' });
+
+        if (response.status === 404) {
+          if (!settings.silent) DatApp.updateCloudStatus('No cloud catalog yet. Save to Cloud to publish one.', 'warn');
+          return false;
+        }
+
+        if (!response.ok) throw new Error('Cloud catalog request failed');
+
+        const catalog = await response.json();
+        const applied = DatApp.applyCatalog(catalog);
+        if (applied) {
+          DatApp.refreshViews();
+          DatApp.updateCloudStatus('Cloud catalog loaded.', 'ok');
+        }
+        return applied;
+      } catch (error) {
+        if (!settings.silent) DatApp.updateCloudStatus('Cloud sync unavailable. Using browser data.', 'warn');
+        return false;
+      }
+    },
+    async saveCloudCatalog() {
+      if (!DatApp.canUseCloudApi()) {
+        DatApp.updateCloudStatus('Cloud save needs the deployed site or a local server.', 'warn');
+        return false;
+      }
+
+      const token = DatApp.getAdminToken();
+      if (!token) {
+        DatApp.updateCloudStatus('Enter and save the Cloud admin token first.', 'warn');
+        return false;
+      }
+
+      try {
+        DatApp.updateCloudStatus('Saving cloud catalog...', 'busy');
+        const response = await fetch(CLOUD_CATALOG_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(DatApp.catalogPayload()),
+        });
+
+        if (response.status === 401) {
+          DatApp.updateCloudStatus('Cloud token is incorrect.', 'warn');
+          return false;
+        }
+
+        if (!response.ok) throw new Error('Cloud save failed');
+
+        const catalog = await response.json();
+        DatApp.applyCatalog(catalog);
+        DatApp.refreshViews();
+        DatApp.state.isDirty = false;
+        DatApp.hideSaveBanner();
+        DatApp.updateCloudStatus('Saved to Cloud. Customer page is updated.', 'ok');
+        return true;
+      } catch (error) {
+        DatApp.updateCloudStatus('Cloud save failed. Check your Pages binding/token.', 'warn');
+        return false;
+      }
     },
   };
 
